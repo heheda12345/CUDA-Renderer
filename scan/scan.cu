@@ -28,6 +28,41 @@ static inline int nextPow2(int n)
     return n;
 }
 
+
+__global__ void local_sum(int* device_result, int* partial_result, int range) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int l = index * range, r = l + range;
+    for (int i=l+1; i<r; i++)
+        device_result[i] += device_result[i-1];
+    partial_result[index] = device_result[r-1];
+}
+
+__global__ void forward(int* device_result, int der) {
+    int index = (blockIdx.x * blockDim.x + threadIdx.x) * der * 2;
+    device_result[index + (der*2) - 1] += device_result[index + der - 1];
+}
+
+__global__ void backward(int* device_result, int der) {
+    int l = (blockIdx.x * blockDim.x + threadIdx.x) * der * 2 + der - 1;
+    int r = l + der;
+    int t = device_result[l];
+    device_result[l] = device_result[r];
+    device_result[r] += t;
+}
+
+__global__ void set_to_zero(int *device_result, int index) {
+    device_result[index] = 0;
+}
+
+__global__ void to_result(int* device_result, int* device_start, int* partial_result, int range, int n) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int l = index * range, r = l + range;
+    if (r != n)
+        device_result[r]  = device_start[r-1] + partial_result[index];
+    for (int i=r-1; i>l; i--)
+        device_result[i] = device_start[i-1] + partial_result[index];
+} 
+
 void exclusive_scan(int* device_start, int length, int* device_result)
 {
     /* Fill in this function with your exclusive scan implementation.
@@ -39,6 +74,22 @@ void exclusive_scan(int* device_start, int length, int* device_result)
      * both the input and the output arrays are sized to accommodate the next
      * power of 2 larger than the input.
      */
+    int n = nextPow2(length);
+    const int totalBlocks = min(n, 8192);
+    int* partial_result;
+    cudaMalloc((void**)&partial_result, sizeof(int)*totalBlocks);
+    int range = n/totalBlocks;
+    local_sum<<<totalBlocks, 1>>>(device_start, partial_result, range);
+    for (int der = 1; der < totalBlocks; der<<=1) {
+        forward<<<totalBlocks/der/2, 1>>>(partial_result, der);
+    }
+    set_to_zero<<<1,1>>>(partial_result, totalBlocks-1);
+    for (int der = totalBlocks/2; der >= 1; der >>= 1) {
+        backward<<<totalBlocks/der/2, 1>>>(partial_result, der);
+    }
+    to_result<<<totalBlocks, 1>>>(device_result, device_start, partial_result, range, n);
+    set_to_zero<<<1,1>>>(device_result, 0);
+    cudaFree(partial_result);
 }
 
 /* This function is a wrapper around the code you will write - it copies the
@@ -113,6 +164,31 @@ double cudaScanThrust(int* inarray, int* end, int* resultarray) {
     return overallDuration;
 }
 
+__global__ void find_repeat_pos(int* a, int *eq, int range, int length) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int l = index * range, r = min(l + range, length);
+    int cnt = 0;
+    if (index == 0) {
+        l++;
+    }
+    for (int i=l; i<r; i++)
+        cnt += (a[i] == a[i-1]);
+    eq[index] = cnt;
+}
+
+__global__ void copy_to_output(int* out, int* a, int* pos, int range, int length) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int l = index * range, r = min(l + range, length);
+    int id = pos[index];
+    if (index == 0)
+        l++;
+    for (int i=l; i<r; i++)
+        if (a[i] == a[i-1]) {
+            out[id++] = i-1;
+        }
+    pos[index] = id;
+}
+
 int find_repeats(int *device_input, int length, int *device_output) {
     /* Finds all pairs of adjacent repeated elements in the list, storing the
      * indices of the first element of each pair (in order) into device_result.
@@ -125,7 +201,21 @@ int find_repeats(int *device_input, int length, int *device_output) {
      * it requires that. However, you must ensure that the results of
      * find_repeats are correct given the original length.
      */    
-    return 0;
+    int n = nextPow2(length);
+    const int totalBlocks = min(n, 8192);
+    int *eq_pos, *eq_idx;
+    cudaMalloc((void**)&eq_pos, sizeof(int)*totalBlocks);
+    cudaMalloc((void**)&eq_idx, sizeof(int)*totalBlocks);
+    int range = n/totalBlocks;
+    find_repeat_pos<<<totalBlocks, 1>>>(device_input, eq_pos, range, length);
+    int* out = new int[totalBlocks];
+    exclusive_scan(eq_pos, totalBlocks, eq_idx);
+    copy_to_output<<<totalBlocks, 1>>>(device_output, device_input, eq_idx, range, length);
+    int ret;
+    cudaMemcpy(&ret, &eq_idx[totalBlocks-1], sizeof(int), cudaMemcpyDeviceToHost);
+    cudaFree(eq_pos);
+    cudaFree(eq_idx);
+    return ret;
 }
 
 /* Timing wrapper around find_repeats. You should not modify this function.

@@ -39,16 +39,23 @@ saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultarray) 
     // without being initialized.
     //
 
+    cudaMalloc((void**)&device_x, totalBytes/3);
+    cudaMalloc((void**)&device_y, totalBytes/3);
+    cudaMalloc((void**)&device_result, totalBytes/3);
+
     // start timing after allocation of device memory.
     double startTime = CycleTimer::currentSeconds();
 
     //
     // TODO: copy input arrays to the GPU using cudaMemcpy
     //
+    cudaMemcpy(device_x, xarray, totalBytes/3, cudaMemcpyHostToDevice);
+    cudaMemcpy(device_y, yarray, totalBytes/3, cudaMemcpyHostToDevice);
 
     //
     // TODO: insert time here to begin timing only the kernel
     //
+    double startKernalTime = CycleTimer::currentSeconds();
 
     // run saxpy_kernel on the GPU
     saxpy_kernel<<<blocks, threadsPerBlock>>>(N, alpha, device_x, device_y, device_result);
@@ -60,12 +67,15 @@ saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultarray) 
     // ensure the kernel running on the GPU has completed.  (Otherwise
     // you will incorrectly observe that almost no time elapses!)
     //
-    //cudaThreadSynchronize();
+    cudaThreadSynchronize();
+    double endKernelTime = CycleTimer::currentSeconds();
 
 
     //
     // TODO: copy result from GPU using cudaMemcpy
     //
+    cudaMemcpy(resultarray, device_result, totalBytes/3, cudaMemcpyDeviceToHost);
+
 
     // end timing after result has been copied back into host memory.
     // The time elapsed between startTime and endTime is the total
@@ -79,11 +89,19 @@ saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultarray) 
     }
 
     double overallDuration = endTime - startTime;
+    double kernalDuration = endKernelTime - startKernalTime;
+    double transferDuration = overallDuration - kernalDuration;
     printf("Overall time: %.3f ms\t\t[%.3f GB/s]\n", 1000.f * overallDuration, toBW(totalBytes, overallDuration));
+    printf("kernal time: %.3f ms\t\t[%.3f GB/s]\n", 1000.f * kernalDuration, toBW(totalBytes, kernalDuration));
+    printf("transfer time: %.3f ms\t\t[%.3f GB/s]\n", 1000.f * transferDuration, toBW(totalBytes, transferDuration));
 
     //
     // TODO free memory buffers on the GPU
     //
+
+    cudaFree(device_x);
+    cudaFree(device_y);
+    cudaFree(device_result);
 }
 
 void

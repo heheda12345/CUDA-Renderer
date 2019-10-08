@@ -1,0 +1,12 @@
+---------------------------------------------------------
+Found 1 CUDA devices
+Device 0: GeForce GTX 1080
+   SMs:        20
+   Global mem: 8120 MB
+   CUDA Cap:   6.1
+---------------------------------------------------------
+GPU_time: 0.793 ms
+9 8 6 6 6 9 7 6 4 6 
+size se 100256 cu 100256
+2 3 36 38 47 57 90 96 138 143 
+Find_repeats outputs are correct!

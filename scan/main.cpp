@@ -157,7 +157,11 @@ int main(int argc, char** argv)
         } else {    
             printf("GPU_time: %.3f ms\n", 1000.f * cudaTime);
         } 
-
+        // //
+        // for (int i=0; i<10; i++) {
+        //     printf("%d %d %d\n", inarray[i], checkarray[i], resultarray[i]);
+        // }
+        // //
         // validate results
         for (int i = 0; i < N; i++)
         {
@@ -184,7 +188,14 @@ int main(int argc, char** argv)
         int serial_size = cpu_find_repeats(inarray, N, checkarray);
 
         printf("GPU_time: %.3f ms\n", 1000.f * cudaTime);
-
+        
+        // for (int i=0; i<10; i++)
+        //     printf("%d ", inarray[i]);
+        // printf("\n");
+        // printf("size se %d cu %d\n", serial_size, cu_size);
+        // for (int i=0; i<10; i++)
+        //     printf("%d ", resultarray[i]);
+        // printf("\n");
         // validate results
         if(serial_size != cu_size){
             fprintf(stderr,
